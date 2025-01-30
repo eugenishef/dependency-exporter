@@ -1,0 +1,9 @@
+ru.yandex.practicum:pipiski:jar:0.0.1-SNAPSHOT
++- org.springframework.boot:spring-boot-starter-web:jar:3.2.4:compile
+|  +- org.springframework.boot:spring-boot-starter:jar:3.2.4:compile
+|  |  +- org.springframework.boot:spring-boot:jar:3.2.4:compile
+|  |  +- org.springframework.boot:spring-boot-autoconfigure:jar:3.2.4:compile
+|  |  +- org.springframework.boot:spring-boot-starter-logging:jar:3.2.4:compile
+|  |  |  +- ch.qos.logback:logback-classic:jar:1.4.14:compile
+|  |  |  |  \- ch.qos.logback:logback-core:jar:1.4.14:compile
++- org.projectlombok:lombok:jar:1.18.30:provided
