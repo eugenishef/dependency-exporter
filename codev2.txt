@@ -1,0 +1,135 @@
+package com.example.dependencyexporter;
+
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.*;
+
+public class DependencyParser {
+    public static void main(String[] args) {
+        String inputFilePath = "mvn-dependency-output.txt";
+        String outputFilePath = "dependencies.xlsx";
+
+        Map<String, DependencyEntry> existingDependencies = readExistingExcel(outputFilePath);
+        List<DependencyEntry> newDependencies = parseDependencies(inputFilePath);
+
+        if (newDependencies.isEmpty()) {
+            System.out.println("Файл пуст или не содержит зависимостей. Excel не обновлен.");
+            return;
+        }
+
+        updateDependencies(existingDependencies, newDependencies);
+        writeToExcel(new ArrayList<>(existingDependencies.values()), outputFilePath);
+        System.out.println("Файл " + outputFilePath + " успешно обновлен!");
+    }
+
+    private static Map<String, DependencyEntry> readExistingExcel(String filePath) {
+        Map<String, DependencyEntry> dependencies = new LinkedHashMap<>();
+        try (Workbook workbook = WorkbookFactory.create(new File(filePath))) {
+            Sheet sheet = workbook.getSheetAt(0);
+            for (Row row : sheet) {
+                if (row.getRowNum() == 0) continue; // Skip header
+                String dependency = row.getCell(0).getStringCellValue();
+                String version = row.getCell(1).getStringCellValue();
+                String projects = row.getCell(2).getStringCellValue();
+                dependencies.put(dependency + ":" + version, new DependencyEntry(dependency, version, projects));
+            }
+        } catch (IOException e) {
+            // File doesn't exist or is empty, which is fine for the first run
+        }
+        return dependencies;
+    }
+
+    private static List<DependencyEntry> parseDependencies(String filePath) {
+        List<DependencyEntry> dependencyList = new ArrayList<>();
+        String currentProject = null;
+
+        try {
+            List<String> lines = Files.readAllLines(Paths.get(filePath));
+            for (String line : lines) {
+                line = line.trim();
+                if (line.isEmpty()) continue;
+
+                if (!line.startsWith("+-") && !line.startsWith("|")) {
+                    currentProject = line.split(":jar:")[0].split(":")[1]; // Get project name
+                } else {
+                    String dependencyLine = line.replaceAll("[|+\\-]", "").trim();
+                    String[] parts = dependencyLine.split(":");
+                    if (parts.length >= 4) {
+                        String dependency = String.join(":", Arrays.copyOfRange(parts, 0, 2));
+                        String version = parts[3];
+                        dependencyList.add(new DependencyEntry(dependency, version, currentProject));
+                    }
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        return dependencyList;
+    }
+
+    private static void updateDependencies(Map<String, DependencyEntry> existing, List<DependencyEntry> newDeps) {
+        for (DependencyEntry newDep : newDeps) {
+            String key = newDep.getDependency() + ":" + newDep.getVersion();
+            if (existing.containsKey(key)) {
+                DependencyEntry existingDep = existing.get(key);
+                String updatedProjects = existingDep.getProjects() + ", " + newDep.getProjects();
+                existing.put(key, new DependencyEntry(newDep.getDependency(), newDep.getVersion(), updatedProjects));
+            } else {
+                existing.put(key, newDep);
+            }
+        }
+    }
+
+    private static void writeToExcel(List<DependencyEntry> dependencies, String filePath) {
+        try (Workbook workbook = new XSSFWorkbook(); FileOutputStream fileOut = new FileOutputStream(filePath)) {
+            Sheet sheet = workbook.createSheet("Dependencies");
+            Row headerRow = sheet.createRow(0);
+            String[] columns = {"Зависимость", "Версия", "Проект"};
+            for (int i = 0; i < columns.length; i++) {
+                headerRow.createCell(i).setCellValue(columns[i]);
+            }
+            int rowNum = 1;
+            for (DependencyEntry entry : dependencies) {
+                Row row = sheet.createRow(rowNum++);
+                row.createCell(0).setCellValue(entry.getDependency());
+                row.createCell(1).setCellValue(entry.getVersion());
+                row.createCell(2).setCellValue(entry.getProjects());
+            }
+            for (int i = 0; i < columns.length; i++) {
+                sheet.autoSizeColumn(i);
+            }
+            workbook.write(fileOut);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+class DependencyEntry {
+    private final String dependency;
+    private final String version;
+    private final String projects;
+
+    public DependencyEntry(String dependency, String version, String projects) {
+        this.dependency = dependency;
+        this.version = version;
+        this.projects = projects;
+    }
+
+    public String getDependency() {
+        return dependency;
+    }
+
+    public String getVersion() {
+        return version;
+    }
+
+    public String getProjects() {
+        return projects;
+    }
+}
