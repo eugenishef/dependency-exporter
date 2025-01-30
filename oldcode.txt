@@ -1,0 +1,283 @@
+package com.example.dependencyexporter;
+
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.*;
+
+public class DependencyParser {
+    public static void main(String[] args) {
+        String inputFilePath = "mvn-dependency-output.txt";
+        String outputFilePath = "dependencies.xlsx";
+
+        List<DependencyEntry> dependencies = parseDependencies(inputFilePath);
+        if (dependencies.isEmpty()) {
+            System.out.println("Файл пуст или не содержит зависимостей. Excel не создан.");
+            return;
+        }
+        writeToExcel(dependencies, outputFilePath);
+        System.out.println("Файл " + outputFilePath + " успешно создан!");
+    }
+
+    private static List<DependencyEntry> parseDependencies(String filePath) {
+        List<DependencyEntry> dependencyList = new ArrayList<>();
+        Map<String, Set<String>> projectDependencies = new LinkedHashMap<>();
+        Map<String, Set<String>> dependencyProjects = new LinkedHashMap<>();
+        Map<String, String> dependencyVersions = new HashMap<>();
+        String currentProject = null;
+
+        try {
+            List<String> lines = Files.readAllLines(Paths.get(filePath));
+            for (String line : lines) {
+                line = line.trim();
+                if (line.isEmpty()) continue;
+
+                // Если это строка с проектом, сохраняем текущий проект
+                if (!line.startsWith("+-") && !line.startsWith("|")) {
+                    currentProject = line.split(":jar:")[0]; // Получаем проект
+                    projectDependencies.putIfAbsent(currentProject, new LinkedHashSet<>());
+                } else if (currentProject != null) {
+                    // Очищаем строку от маркеров
+                    String dependency = line.replaceAll("[|+\\-]", "").trim();
+
+                    // Разделяем строку по двоеточию для получения зависимостей
+                    String[] parts = dependency.split(":");
+
+                    // Получаем зависимость (groupId:artifactId)
+                    String cleanDependency = String.join(":", Arrays.copyOfRange(parts, 0, 2));
+                    String version = "N/A"; // Если версия не найдена, ставим N/A
+
+                    // Если строка длинная и содержит версию, извлекаем её
+                    if (parts.length >= 4) {
+                        version = parts[3];
+                    }
+
+                    // Сохраняем версию зависимости, если это первый раз
+                    if (!dependencyVersions.containsKey(cleanDependency)) {
+                        dependencyVersions.put(cleanDependency, version);
+                    }
+
+                    // Добавляем зависимость в список зависимостей для проекта
+                    projectDependencies.get(currentProject).add(cleanDependency);
+
+                    // Добавляем проект в список проектов для текущей зависимости
+                    dependencyProjects.computeIfAbsent(cleanDependency, k -> new LinkedHashSet<>()).add(currentProject);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        // Заполняем dependencyList
+        for (var entry : dependencyProjects.entrySet()) {
+            String dependency = entry.getKey();
+            String version = dependencyVersions.getOrDefault(dependency, "N/A");
+
+            // Получаем список проектов с удалением префиксов
+            String projects = String.join(", ", entry.getValue());
+            projects = removePrefixFromProjects(projects);
+
+            // Форматируем зависимость с учётом нужного отступа
+            String formattedProjects = formatDependencyTree(projects);
+
+            // Добавляем зависимость с правильным форматированием
+            dependencyList.add(new DependencyEntry(dependency, version, formattedProjects));
+        }
+
+        return dependencyList;
+    }
+
+    // Метод для удаления префикса из каждого проекта, оставляя только имя
+    private static String removePrefixFromProjects(String projects) {
+        String[] projectArray = projects.split(", ");
+        for (int i = 0; i < projectArray.length; i++) {
+            // Убираем всё до первого двоеточия
+            projectArray[i] = projectArray[i].split(":")[1];
+        }
+        return String.join(", ", projectArray);
+    }
+
+    // Метод для форматирования зависимостей с сохранением структуры
+    private static String formatDependencyTree(String projects) {
+        StringBuilder formatted = new StringBuilder();
+        String[] lines = projects.split("\n");
+        int indentLevel = 0;
+
+        for (String line : lines) {
+            String trimmedLine = line.trim();
+            if (!trimmedLine.isEmpty()) {
+                // Добавляем правильное количество отступов в зависимости от уровня вложенности
+                String indent = "  ".repeat(indentLevel);
+                formatted.append(indent).append(trimmedLine).append("\n");
+            }
+        }
+        return formatted.toString().trim();
+    }
+
+
+
+// -- версия 2
+//    private static List<DependencyEntry> parseDependencies(String filePath) {
+//        List<DependencyEntry> dependencyList = new ArrayList<>();
+//        Map<String, Set<String>> projectDependencies = new LinkedHashMap<>();
+//        Map<String, Set<String>> dependencyProjects = new LinkedHashMap<>();
+//        Map<String, String> dependencyVersions = new HashMap<>();
+//        String currentProject = null;
+//
+//        try {
+//            List<String> lines = Files.readAllLines(Paths.get(filePath));
+//            for (String line : lines) {
+//                line = line.trim();
+//                if (line.isEmpty()) continue;
+//
+//                // Если это строка с проектом, сохраняем текущий проект
+//                if (!line.startsWith("+-") && !line.startsWith("|")) {
+//                    currentProject = line.split(":jar:")[0]; // Получаем проект
+//                    projectDependencies.putIfAbsent(currentProject, new LinkedHashSet<>());
+//                } else if (currentProject != null) {
+//                    // Очищаем строку от маркеров
+//                    String dependency = line.replaceAll("[|+\\-]", "").trim();
+//
+//                    // Разделяем строку по двоеточию для получения зависимостей
+//                    String[] parts = dependency.split(":");
+//
+//                    // Получаем зависимость (groupId:artifactId)
+//                    String cleanDependency = String.join(":", Arrays.copyOfRange(parts, 0, 2));
+//                    String version = "N/A"; // Если версия не найдена, ставим N/A
+//
+//                    // Если строка длинная и содержит версию, извлекаем её
+//                    if (parts.length >= 4) {
+//                        version = parts[3];
+//                    }
+//
+//                    // Сохраняем версию зависимости, если это первый раз
+//                    if (!dependencyVersions.containsKey(cleanDependency)) {
+//                        dependencyVersions.put(cleanDependency, version);
+//                    }
+//
+//                    // Добавляем зависимость в список зависимостей для проекта
+//                    projectDependencies.get(currentProject).add(cleanDependency);
+//
+//                    // Добавляем проект в список проектов для текущей зависимости
+//                    dependencyProjects.computeIfAbsent(cleanDependency, k -> new LinkedHashSet<>()).add(currentProject);
+//                }
+//            }
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        }
+//
+//        // Заполняем dependencyList
+//        for (var entry : dependencyProjects.entrySet()) {
+//            String dependency = entry.getKey();
+//            String version = dependencyVersions.getOrDefault(dependency, "N/A");
+//            String projects = String.join(", ", entry.getValue());
+//            dependencyList.add(new DependencyEntry(dependency, version, projects));
+//        }
+//
+//        return dependencyList;
+//    }
+
+
+
+
+
+
+
+// --версия 1
+
+//    private static List<DependencyEntry> parseDependencies(String filePath) {
+//        List<DependencyEntry> dependencyList = new ArrayList<>();
+//        Map<String, Set<String>> projectDependencies = new LinkedHashMap<>();
+//        String currentProject = null;
+//
+//        try {
+//            List<String> lines = Files.readAllLines(Paths.get(filePath));
+//            for (String line : lines) {
+//                line = line.trim();
+//                if (line.isEmpty()) continue;
+//
+//                if (!line.startsWith("+-") && !line.startsWith("|")) {
+//                    currentProject = line.split(":jar:")[0];
+//                    projectDependencies.putIfAbsent(currentProject, new LinkedHashSet<>());
+//                } else if (currentProject != null) {
+//                    String dependency = line.replaceAll("[|+\\-]", "").trim();
+//
+//                    // Получение версии зависимости
+//                    String version = "N/A";
+//                    String[] parts = dependency.split(":");
+//                    if (parts.length >= 4) {
+//                        version = parts[3]; // Обычно версия идет на 4-й позиции в зависимости
+//                    }
+//
+//                    projectDependencies.get(currentProject).add(dependency);
+//                }
+//            }
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        }
+//
+//        Map<String, Set<String>> dependencyProjects = new LinkedHashMap<>();
+//        for (var entry : projectDependencies.entrySet()) {
+//            for (String dep : entry.getValue()) {
+//                dependencyProjects.computeIfAbsent(dep, k -> new LinkedHashSet<>()).add(entry.getKey());
+//            }
+//        }
+//
+//        for (var entry : dependencyProjects.entrySet()) {
+//            String dependency = entry.getKey();
+//            // Версия теперь извлекается корректно
+//            String version = "N/A";
+//            String[] parts = dependency.split(":");
+//            if (parts.length >= 4) {
+//                version = parts[3]; // Получаем версию из правильной части строки
+//            }
+//            String projects = String.join(", ", entry.getValue());
+//            dependencyList.add(new DependencyEntry(dependency, version, projects));
+//        }
+//        return dependencyList;
+//    }
+
+
+    private static void writeToExcel(List<DependencyEntry> dependencies, String filePath) {
+        try (Workbook workbook = new XSSFWorkbook(); FileOutputStream fileOut = new FileOutputStream(filePath)) {
+            Sheet sheet = workbook.createSheet("Dependencies");
+            Row headerRow = sheet.createRow(0);
+            String[] columns = {"Зависимость", "Версия", "Проект"};
+            for (int i = 0; i < columns.length; i++) {
+                headerRow.createCell(i).setCellValue(columns[i]);
+            }
+            int rowNum = 1;
+            for (DependencyEntry entry : dependencies) {
+                Row row = sheet.createRow(rowNum++);
+                row.createCell(0).setCellValue(entry.getDependency());
+                row.createCell(1).setCellValue(entry.getVersion());
+                row.createCell(2).setCellValue(entry.getProjects());
+            }
+            for (int i = 0; i < columns.length; i++) {
+                sheet.autoSizeColumn(i);
+            }
+            workbook.write(fileOut);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+class DependencyEntry {
+    private final String dependency;
+    private final String version;
+    private final String projects;
+
+    public DependencyEntry(String dependency, String version, String projects) {
+        this.dependency = dependency;
+        this.version = version;
+        this.projects = projects;
+    }
+
+    public String getDependency() { return dependency; }
+    public String getVersion() { return version; }
+    public String getProjects() { return projects; }
+}
